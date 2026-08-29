@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import urllib.request
+import urllib.parse
 import json
 import re
 import yt_dlp
@@ -32,12 +33,12 @@ def format_duration(seconds):
     secs = int(seconds % 60)
     return f"{mins}:{secs:02d}"
 
-# ==========================================
-# 1. TIKTOK DEDICATED HIGH-SPEED ENGINE
-# ==========================================
+# =======================================================
+# 1. TIKTOK ENGINE (100% Reliable - Zero Watermark)
+# =======================================================
 def extract_tiktok(url: str):
     try:
-        api_url = f"https://www.tikwm.com/api/?url={url}"
+        api_url = f"https://www.tikwm.com/api/?url={urllib.parse.quote(url)}"
         req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode('utf-8'))
@@ -50,55 +51,117 @@ def extract_tiktok(url: str):
                     "uploader": f"@{d.get('author', {}).get('unique_id', 'creator')}",
                     "duration": format_duration(d.get('duration', 0)),
                     "formats": [
-                        {
-                            "quality": "HD Video (No Watermark)",
-                            "size": format_size(d.get('size')),
-                            "url": d.get('play', '')
-                        },
-                        {
-                            "quality": "Original Audio (MP3)",
-                            "size": "Audio",
-                            "url": d.get('music', '')
-                        }
+                        {"quality": "HD Video (No Watermark)", "size": format_size(d.get('size')), "url": d.get('play', '')},
+                        {"quality": "Original Audio (MP3)", "size": "Audio", "url": d.get('music', '')}
                     ]
                 }
     except Exception:
         pass
     return None
 
-# ==========================================
-# 2. INSTAGRAM DEDICATED SCRAPER
-# ==========================================
+# =======================================================
+# 2. YOUTUBE MULTI-GATEWAY (Bypasses Datacenter Bot-Block)
+# =======================================================
+def extract_youtube(url: str):
+    match = re.search(r'(?:v=|\/|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})', url)
+    if not match:
+        return None
+    vid_id = match.group(1)
+
+    gateways = [
+        f"https://invidious.nerdvpn.de/api/v1/videos/{vid_id}",
+        f"https://inv.nadeko.net/api/v1/videos/{vid_id}",
+        f"https://invidious.protokolla.fi/api/v1/videos/{vid_id}",
+        f"https://pipedapi.kavin.rocks/streams/{vid_id}",
+        f"https://api.piped.yt/streams/{vid_id}"
+    ]
+
+    for gw in gateways:
+        try:
+            req = urllib.request.Request(gw, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+
+                # Parsing Invidious Response
+                if 'formatStreams' in data:
+                    formats = []
+                    for s in data.get('formatStreams', []):
+                        if s.get('url'):
+                            q = s.get('qualityLabel') or s.get('resolution') or 'Direct MP4'
+                            formats.append({
+                                "quality": f"{q} (Fast Download)",
+                                "size": "Direct Video",
+                                "url": s.get('url')
+                            })
+                    if formats:
+                        thumbs = data.get('videoThumbnails', [])
+                        thumb = thumbs[-1].get('url') if thumbs else f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg"
+                        return {
+                            "success": True,
+                            "title": data.get('title', 'YouTube Video')[:60],
+                            "thumbnail": thumb,
+                            "uploader": data.get('author', 'YouTube Creator'),
+                            "duration": format_duration(data.get('lengthSeconds', 0)),
+                            "formats": formats[:4]
+                        }
+
+                # Parsing Piped Response
+                if 'videoStreams' in data:
+                    formats = []
+                    for s in data.get('videoStreams', []):
+                        if s.get('url') and s.get('videoOnly') is False:
+                            formats.append({
+                                "quality": f"{s.get('quality', 'HD')} MP4",
+                                "size": "Direct Video",
+                                "url": s.get('url')
+                            })
+                    if formats:
+                        return {
+                            "success": True,
+                            "title": data.get('title', 'YouTube Video')[:60],
+                            "thumbnail": data.get('thumbnailUrl', f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg"),
+                            "uploader": data.get('uploader', 'YouTube Creator'),
+                            "duration": format_duration(data.get('duration', 0)),
+                            "formats": formats[:4]
+                        }
+        except Exception:
+            continue
+    return None
+
+# =======================================================
+# 3. INSTAGRAM ENGINE (Multi-Layer API & Scraper)
+# =======================================================
 def extract_instagram(url: str):
+    match = re.search(r'instagram\.com/(?:p|reel|reels|tv)/([^/?#&]+)', url)
+    if not match:
+        return None
+    shortcode = match.group(1)
+
+    api_url = f"https://www.instagram.com/api/v1/media/web_info/?shortcode={shortcode}"
+    req = urllib.request.Request(api_url, headers={
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15',
+        'x-ig-app-id': '936619743392459',
+        'Accept': '*/*',
+    })
+
     try:
-        match = re.search(r'instagram\.com/(?:p|reel|reels|tv)/([^/?#&]+)', url)
-        if not match:
-            return None
-        shortcode = match.group(1)
-        
-        api_url = f"https://www.instagram.com/api/v1/media/web_info/?shortcode={shortcode}"
-        req = urllib.request.Request(api_url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'x-ig-app-id': '936619743392459',
-            'Accept': '*/*',
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode('utf-8'))
             items = data.get('items', [])
             if items:
                 media = items[0]
                 caption = media.get('caption', {}).get('text', 'Instagram Reel') if media.get('caption') else 'Instagram Reel'
                 thumb = media.get('image_versions2', {}).get('candidates', [{}])[0].get('url', '')
-                uploader = media.get('user', {}).get('username', 'Instagram Creator')
-                
+                uploader = media.get('user', {}).get('username', 'Instagram User')
+
                 formats = []
                 for v in media.get('video_versions', []):
-                    formats.append({
-                        "quality": f"{v.get('height', 720)}p MP4 (Fast Download)",
-                        "size": "HD Media",
-                        "url": v.get('url')
-                    })
-                
+                    if v.get('url'):
+                        formats.append({
+                            "quality": f"{v.get('height', 720)}p MP4 (High Speed)",
+                            "size": "HD Media",
+                            "url": v.get('url')
+                        })
                 if formats:
                     return {
                         "success": True,
@@ -112,30 +175,20 @@ def extract_instagram(url: str):
         pass
     return None
 
-# ==========================================
-# 3. UNIVERSAL ENGINE (YOUTUBE, FB, TWITTER)
-# ==========================================
+# =======================================================
+# 4. UNIVERSAL FALLBACK (Facebook, Twitter/X, & Others)
+# =======================================================
 def extract_universal(url: str):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'no_color': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android', 'mweb', 'web_embedded']
-            },
-            'facebook': {
-                'app_version': 'latest'
-            }
-        },
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         }
     }
-
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
-        
         formats = []
         if 'formats' in info:
             for f in info['formats']:
@@ -145,64 +198,49 @@ def extract_universal(url: str):
                 ext = f.get('ext', 'mp4')
                 vcodec = f.get('vcodec', 'none')
                 acodec = f.get('acodec', 'none')
-                format_note = f.get('format_note') or f.get('resolution') or (f"{f.get('height')}p" if f.get('height') else None)
-                filesize = f.get('filesize') or f.get('filesize_approx')
-
+                note = f.get('format_note') or f.get('resolution') or f"{f.get('height')}p"
                 if vcodec != 'none' or acodec != 'none':
-                    label = f"{format_note} ({ext})" if format_note else f"Direct ({ext})"
                     formats.append({
-                        "quality": label,
-                        "size": format_size(filesize),
+                        "quality": f"{note} ({ext})" if note else f"Media ({ext})",
+                        "size": format_size(f.get('filesize')),
                         "url": f_url
                     })
-
-        if not formats and info.get('url'):
-            formats.append({
-                "quality": "Direct HD Stream",
-                "size": "Auto",
-                "url": info.get('url')
-            })
-
-        # Remove duplicate stream links
-        unique_formats = []
-        seen = set()
-        for fmt in formats:
-            if fmt['url'] not in seen:
-                seen.add(fmt['url'])
-                unique_formats.append(fmt)
-
         return {
             "success": True,
             "title": info.get('title', 'Extracted Video')[:60],
             "thumbnail": info.get('thumbnail', ''),
-            "uploader": info.get('uploader', 'Content Creator'),
+            "uploader": info.get('uploader', 'Creator'),
             "duration": format_duration(info.get('duration', 0)),
-            "formats": unique_formats[:5] if unique_formats else [
-                {"quality": "Standard MP4", "size": "Auto", "url": url}
-            ]
+            "formats": formats[:4] if formats else [{"quality": "Direct HD", "size": "Auto", "url": info.get('url', url)}]
         }
 
 @app.get("/")
 def home():
-    return {"status": "online", "message": "SnapLoad Universal Multi-Engine API Ready"}
+    return {"status": "online", "message": "SnapLoad Multi-Gateway Engine Live"}
 
 @app.post("/api/analyze")
 def analyze_video(req: VideoRequest):
     url = req.url.strip()
-    
-    # 1. TikTok Route
+
+    # Route 1: TikTok
     if "tiktok.com" in url:
-        res = extract_tiktok(url)
-        if res:
-            return res
+        tt = extract_tiktok(url)
+        if tt:
+            return tt
 
-    # 2. Instagram Route
+    # Route 2: YouTube & Shorts
+    if "youtube.com" in url or "youtu.be" in url:
+        yt = extract_youtube(url)
+        if yt:
+            return yt
+
+    # Route 3: Instagram
     if "instagram.com" in url:
-        res = extract_instagram(url)
-        if res:
-            return res
+        ig = extract_instagram(url)
+        if ig:
+            return ig
 
-    # 3. Universal Multi-Platform Route
+    # Route 4: Universal Fallback (Facebook, Twitter/X, etc.)
     try:
         return extract_universal(url)
     except Exception as e:
