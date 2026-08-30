@@ -40,7 +40,7 @@ def extract_tiktok(url: str):
     try:
         api_url = f"https://www.tikwm.com/api/?url={urllib.parse.quote(url)}"
         req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode('utf-8'))
             if data.get('code') == 0:
                 d = data.get('data', {})
@@ -60,7 +60,7 @@ def extract_tiktok(url: str):
     return None
 
 # =======================================================
-# 2. INSTAGRAM ENGINE (Working 100%)
+# 2. INSTAGRAM ENGINE (100% Working)
 # =======================================================
 def extract_instagram(url: str):
     match = re.search(r'instagram\.com/(?:p|reel|reels|tv)/([^/?#&]+)', url)
@@ -107,76 +107,85 @@ def extract_instagram(url: str):
     return None
 
 # =======================================================
-# 3. YOUTUBE COBALT & STREAM ENGINE (No Datacenter Block)
+# 3. YOUTUBE BYPASS ENGINE (Direct CDN & Mirror Route)
 # =======================================================
 def extract_youtube(url: str):
     match = re.search(r'(?:v=|\/|shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})', url)
-    vid_id = match.group(1) if match else ""
-    
-    # 1. Cobalt High-Speed API
+    if not match:
+        return None
+    vid_id = match.group(1)
+    clean_yt_url = f"https://www.youtube.com/watch?v={vid_id}"
+
+    # Method 1: SaveTube Cloud API (Bypasses Datacenter Block)
     try:
         req = urllib.request.Request(
-            "https://api.cobalt.tools/api/json",
-            data=json.dumps({"url": url, "vQuality": "720"}).encode('utf-8'),
+            "https://cdn51.savetube.me/info",
+            data=json.dumps({"url": clean_yt_url}).encode('utf-8'),
             headers={
-                'Accept': 'application/json',
                 'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             }
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode('utf-8'))
-            if data.get('url'):
-                return {
-                    "success": True,
-                    "title": "YouTube Video (HD)",
-                    "thumbnail": f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg" if vid_id else "",
-                    "uploader": "YouTube Creator",
-                    "duration": "Direct Stream",
-                    "formats": [
-                        {"quality": "720p HD MP4 (Fast)", "size": "Direct Video", "url": data.get('url')}
-                    ]
-                }
+            if data.get('status') and data.get('data'):
+                d = data['data']
+                formats = []
+                for vf in d.get('video_formats', []):
+                    if vf.get('url'):
+                        formats.append({
+                            "quality": f"{vf.get('quality', '720')}p MP4 (Fast)",
+                            "size": "HD Video",
+                            "url": vf.get('url')
+                        })
+                if formats:
+                    return {
+                        "success": True,
+                        "title": d.get('title', 'YouTube Video')[:60],
+                        "thumbnail": d.get('thumbnail', f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg"),
+                        "uploader": "YouTube Creator",
+                        "duration": d.get('durationLabel', 'N/A'),
+                        "formats": formats[:4]
+                    }
     except Exception:
         pass
 
-    # 2. Invidious Live Public Gateway
-    if vid_id:
-        gateways = [
-            f"https://vid.priv.au/api/v1/videos/{vid_id}",
-            f"https://invidious.jing.rocks/api/v1/videos/{vid_id}",
-            f"https://yt.artemislena.eu/api/v1/videos/{vid_id}"
-        ]
-        for gw in gateways:
-            try:
-                req = urllib.request.Request(gw, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=6) as resp:
-                    data = json.loads(resp.read().decode('utf-8'))
-                    formats = []
-                    for s in data.get('formatStreams', []):
-                        if s.get('url'):
-                            q = s.get('qualityLabel') or s.get('resolution') or 'Direct MP4'
-                            formats.append({
-                                "quality": f"{q} MP4",
-                                "size": "Direct Stream",
-                                "url": s.get('url')
-                            })
-                    if formats:
-                        return {
-                            "success": True,
-                            "title": data.get('title', 'YouTube Video')[:60],
-                            "thumbnail": f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg",
-                            "uploader": data.get('author', 'YouTube Channel'),
-                            "duration": format_duration(data.get('lengthSeconds', 0)),
-                            "formats": formats[:4]
-                        }
-            except Exception:
-                continue
+    # Method 2: Live Invidious Fallback Mirrors
+    mirrors = [
+        f"https://inv.tux.pizza/api/v1/videos/{vid_id}",
+        f"https://invidious.nerdvpn.de/api/v1/videos/{vid_id}",
+        f"https://invidious.projectsegfau.lt/api/v1/videos/{vid_id}"
+    ]
+    for mirror in mirrors:
+        try:
+            req = urllib.request.Request(mirror, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                m_data = json.loads(resp.read().decode('utf-8'))
+                formats = []
+                for s in m_data.get('formatStreams', []):
+                    if s.get('url'):
+                        q = s.get('qualityLabel') or s.get('resolution') or 'HD MP4'
+                        formats.append({
+                            "quality": f"{q} MP4",
+                            "size": "Direct Stream",
+                            "url": s.get('url')
+                        })
+                if formats:
+                    return {
+                        "success": True,
+                        "title": m_data.get('title', 'YouTube Video')[:60],
+                        "thumbnail": f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg",
+                        "uploader": m_data.get('author', 'YouTube Channel'),
+                        "duration": format_duration(m_data.get('lengthSeconds', 0)),
+                        "formats": formats[:4]
+                    }
+        except Exception:
+            continue
 
     return None
 
 # =======================================================
-# 4. UNIVERSAL EXTRACTOR (FB, TWITTER/X)
+# 4. UNIVERSAL FALLBACK (Facebook, Twitter, etc.)
 # =======================================================
 def extract_universal(url: str):
     ydl_opts = {
@@ -216,32 +225,31 @@ def extract_universal(url: str):
 
 @app.get("/")
 def home():
-    return {"status": "online", "message": "SnapLoad API Ready"}
+    return {"status": "online", "message": "SnapLoad API Active"}
 
 @app.post("/api/analyze")
 def analyze_video(req: VideoRequest):
     url = req.url.strip()
 
-    # 1. Instagram Route
+    # 1. Instagram
     if "instagram.com" in url:
         ig = extract_instagram(url)
         if ig:
             return ig
 
-    # 2. TikTok Route
+    # 2. TikTok
     if "tiktok.com" in url:
         tt = extract_tiktok(url)
         if tt:
             return tt
 
-    # 3. YouTube Route
+    # 3. YouTube & Shorts
     if "youtube.com" in url or "youtu.be" in url:
         yt = extract_youtube(url)
         if yt:
             return yt
-        raise HTTPException(status_code=400, detail="YouTube stream is temporarily busy. Please retry with TikTok or Instagram link.")
 
-    # 4. Universal Fallback
+    # 4. Universal Fallback (FB, Twitter, etc.)
     try:
         return extract_universal(url)
     except Exception as e:
